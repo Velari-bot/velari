@@ -306,7 +306,7 @@ client.on('guildMemberAdd', async (member) => {
 
     // Build embed
     const embed = new EmbedBuilder()
-      .setTitle(`🎉 Welcome to Team Solarr | EST 2025, ${member.user.tag}! 🎉`)
+      .setTitle(`🎉 Welcome to Lunary | EST 2024, ${member.user.tag}! 🎉`)
       .setDescription(`We're excited to have you join our community!\n\n• You are our **${memberCount}th** member\n• Account created on ${createdAt}\n• Join date: ${joinedAt}\n\n**Quick Links:**\n[Server Rules](https://discord.com/channels/${member.guild.id}/${RULES_CHANNEL_ID})\n[General](https://discord.com/channels/${member.guild.id}/)\n[Support](https://discord.com/channels/${member.guild.id}/)`)
       .setImage('attachment://Lunary_Banner.png')
       .setColor('#F44336')
