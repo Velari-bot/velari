@@ -1,37 +1,19 @@
 import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
-import { db } from '../firebase/firebase.js';
 
 export const data = new SlashCommandBuilder()
     .setName('announce')
-    .setDescription('Manage announcements')
-    .addSubcommand(subcommand =>
-        subcommand
-            .setName('send')
-            .setDescription('Send an announcement DM to users with a specific role.')
-            .addRoleOption(option => 
-                option.setName('role')
-                    .setDescription('The role to receive the announcement.')
-                    .setRequired(true))
-            .addStringOption(option =>
-                option.setName('message')
-                    .setDescription('The announcement message.')
-                    .setRequired(true)))
-    .addSubcommand(subcommand =>
-        subcommand
-            .setName('opt-out')
-            .setDescription('Opt-out of receiving announcements from this bot.'));
+    .setDescription('Send an announcement DM to all users with a specific role.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addRoleOption(option =>
+        option.setName('role')
+            .setDescription('The role to receive the announcement.')
+            .setRequired(true))
+    .addStringOption(option =>
+        option.setName('message')
+            .setDescription('The announcement message.')
+            .setRequired(true));
 
 export async function execute(interaction) {
-    const subcommand = interaction.options.getSubcommand();
-
-    if (subcommand === 'send') {
-        await handleSend(interaction);
-    } else if (subcommand === 'opt-out') {
-        await handleOptOut(interaction);
-    }
-}
-
-async function handleSend(interaction) {
     if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
         return interaction.reply({
             content: 'You must be an administrator to use this command.',
@@ -55,11 +37,8 @@ async function handleSend(interaction) {
         let successfulDMs = 0;
         let failedDMs = 0;
 
-        const optOutSnapshot = await db.collection('announcement_opt_outs').get();
-        const optOutIds = new Set(optOutSnapshot.docs.map(doc => doc.id));
-
         for (const member of members.values()) {
-            if (member.user.bot || optOutIds.has(member.id)) {
+            if (member.user.bot) {
                 continue;
             }
 
@@ -67,7 +46,7 @@ async function handleSend(interaction) {
                 await member.send(message);
                 successfulDMs++;
             } catch (error) {
-                console.error(`Could not send DM to ${member.user.tag}.`);
+                // This is expected if the user has DMs disabled or has blocked the bot.
                 failedDMs++;
             }
         }
@@ -77,24 +56,5 @@ async function handleSend(interaction) {
     } catch (error) {
         console.error('Error sending announcement:', error);
         await interaction.editReply('An error occurred while sending the announcement.');
-    }
-}
-
-async function handleOptOut(interaction) {
-    const userId = interaction.user.id;
-    const userRef = db.collection('announcement_opt_outs').doc(userId);
-
-    try {
-        const doc = await userRef.get();
-        if (doc.exists) {
-            await userRef.delete();
-            await interaction.reply({ content: 'You have opted back in to receiving announcements.', ephemeral: true });
-        } else {
-            await userRef.set({ opted_out: true });
-            await interaction.reply({ content: 'You have opted out of receiving announcements.', ephemeral: true });
-        }
-    } catch (error) {
-        console.error('Error handling opt-out:', error);
-        await interaction.reply({ content: 'An error occurred while updating your preferences.', ephemeral: true });
     }
 } 
