@@ -1,6 +1,6 @@
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuBuilder } from 'discord.js';
-import { TICKET_CONFIG, CHANNEL_IDS, ALLOWED_ROLES, OVERRIDE_ROLES, ROLES } from '../config.js';
-import { getUserTicket, generateTicketChannelName, getOrCreateSupportRole, createTicketPermissions, hasTicketPermission, isValidTicketChannel } from '../utils/ticketUtils.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { TICKET_CONFIG } from '../config.js';
+import { isValidTicketChannel } from '../utils/ticketUtils.js';
 import { db } from '../firebase/firebase.js';
 import { hasSupportPermission, getSupportRole, isServerConfigured } from '../utils/serverRoles.js';
 
@@ -8,6 +8,12 @@ import { hasSupportPermission, getSupportRole, isServerConfigured } from '../uti
 async function loadTicketConfig(guildId, client) {
     if (!client.ticketConfig) client.ticketConfig = {};
     if (client.ticketConfig[guildId]) return client.ticketConfig[guildId];
+    if (!db) {
+        // Fallback if Firebase is not initialized
+        const def = { ticketLogChannelId: null };
+        client.ticketConfig[guildId] = def;
+        return def;
+    }
     const doc = await db.collection('ticketConfig').doc(guildId).get();
     if (doc.exists) {
         client.ticketConfig[guildId] = doc.data();
@@ -31,91 +37,20 @@ function generateOrderId(length = 8) {
     return result;
 }
 
-const SUPPORT_ROLE_NAME = 'Support Team'; // Default, can be made configurable
-
 export const data = new SlashCommandBuilder()
     .setName('ticket')
     .setDescription('Manage the ticket system')
     .addSubcommand(subcommand =>
         subcommand
-            .setName('setup')
-            .setDescription('Setup the ticket panel')
-            .addChannelOption(option =>
-                option
-                    .setName('channel')
-                    .setDescription('Channel to post the ticket panel')
-                    .setRequired(true)
-                    .addChannelTypes(ChannelType.GuildText)
-            )
-    )
-    .addSubcommand(subcommand =>
-        subcommand
             .setName('close')
             .setDescription('Close the current ticket')
-    )
-    .addSubcommand(subcommand =>
-        subcommand
-            .setName('panel')
-            .setDescription('Send the ticket creation panel for users to open a ticket.')
     );
 
 export async function execute(interaction, client) {
     const subcommand = interaction.options.getSubcommand();
 
-    if (subcommand === 'setup') {
-        await handleTicketSetup(interaction, client);
-    } else if (subcommand === 'close') {
+    if (subcommand === 'close') {
         await handleCloseTicket(interaction, client);
-    } else if (subcommand === 'panel') {
-        await handleTicketPanel(interaction);
-    }
-}
-
-async function handleTicketSetup(interaction, client) {
-    // Check if user has permission to manage channels
-    if (!interaction.member.permissions.has(PermissionFlagsBits.ManageChannels)) {
-        return await interaction.reply({
-            content: '❌ **You need the "Manage Channels" permission to setup the ticket system.**',
-            ephemeral: true
-        });
-    }
-
-    const channel = interaction.options.getChannel('channel');
-
-    // Create the ticket panel embed
-    const embed = new EmbedBuilder()
-        .setTitle(TICKET_CONFIG.MESSAGES.PANEL_TITLE)
-        .setDescription(TICKET_CONFIG.MESSAGES.PANEL_DESCRIPTION)
-        .setColor(TICKET_CONFIG.COLORS.PRIMARY)
-        .setFooter({ text: 'Velari Support System', iconURL: interaction.guild.iconURL() })
-        .setTimestamp();
-
-    // Create the create ticket button
-    const createButton = new ActionRowBuilder()
-        .addComponents(
-            new ButtonBuilder()
-                .setCustomId('create_ticket')
-                .setLabel(TICKET_CONFIG.BUTTONS.CREATE_TICKET)
-                .setStyle(ButtonStyle.Primary)
-                .setEmoji('🎫')
-        );
-
-    try {
-        await channel.send({
-            embeds: [embed],
-            components: [createButton]
-        });
-
-        await interaction.reply({
-            content: `✅ **Ticket panel has been successfully setup in ${channel.toString()}!**`,
-            ephemeral: true
-        });
-    } catch (error) {
-        console.error('Error setting up ticket panel:', error);
-        await interaction.reply({
-            content: '❌ **Failed to setup ticket panel. Please check my permissions in the channel.**',
-            ephemeral: true
-        });
     }
 }
 
@@ -123,7 +58,6 @@ async function handleCloseTicket(interaction, client) {
     const channel = interaction.channel;
     const user = interaction.user;
 
-    // Check if this is actually a ticket channel
     if (!isValidTicketChannel(channel.name)) {
         return await interaction.reply({
             content: '❌ **This command can only be used in ticket channels.**',
@@ -131,25 +65,22 @@ async function handleCloseTicket(interaction, client) {
         });
     }
 
-    // Check if server is configured
-    const configured = await isServerConfigured(interaction.guild.id);
-    if (!configured) {
+    if (!await isServerConfigured(interaction.guild.id)) {
         return await interaction.reply({
             content: '❌ **This server has not been configured yet. Please use `/setup` to configure the bot first.**',
             ephemeral: true
         });
     }
 
-    // Check if user has permission to close tickets
     const hasPermission = await hasSupportPermission(interaction.member);
-    if (!hasPermission) {
-        return await interaction.reply({
+    const ticketCreatorId = channel.topic?.split('User ID: ')[1];
+    if (!hasPermission && user.id !== ticketCreatorId) {
+         return await interaction.reply({
             content: '❌ **You do not have permission to close tickets.**',
             ephemeral: true
         });
     }
 
-    // Create confirmation embed
     const confirmEmbed = new EmbedBuilder()
         .setTitle(TICKET_CONFIG.MESSAGES.CLOSING_TITLE)
         .setDescription(TICKET_CONFIG.MESSAGES.CLOSING_DESCRIPTION.replace('{user}', user.tag))
@@ -161,7 +92,6 @@ async function handleCloseTicket(interaction, client) {
         embeds: [confirmEmbed]
     });
 
-    // Delete the channel after the configured delay
     setTimeout(async () => {
         try {
             await channel.delete();
@@ -171,26 +101,6 @@ async function handleCloseTicket(interaction, client) {
     }, TICKET_CONFIG.CLOSE_DELAY);
 }
 
-async function handleTicketPanel(interaction) {
-    // Only allow admins to use this command
-    if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
-        return interaction.reply({ content: '❌ You need Manage Server permission to use this command.', ephemeral: true });
-    }
-    const embed = new EmbedBuilder()
-        .setTitle('🎫 Open a Support Ticket')
-        .setDescription('Click the button below to open a ticket and get help from our team!')
-        .setColor(0x5865F2);
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('open_ticket')
-            .setLabel('Open Ticket')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('🎫')
-    );
-    await interaction.reply({ embeds: [embed], components: [row] });
-}
-
-// Export button handlers for use in index.js
 export async function handleCreateTicket(interaction, client) {
     const { customId } = interaction;
     let questions = [];
@@ -202,11 +112,10 @@ export async function handleCreateTicket(interaction, client) {
             const data = JSON.parse(jsonData);
             if (data.q && Array.isArray(data.q)) {
                 questions = data.q;
-                modalCustomId = `ticket_modal_custom:${jsonData}`; // Pass data to modal
+                modalCustomId = `ticket_modal_custom:${jsonData}`;
             }
         } catch (error) {
             console.error('Error parsing custom ticket questions:', error);
-            // Fallback to default if parsing fails
         }
     }
 
@@ -215,17 +124,15 @@ export async function handleCreateTicket(interaction, client) {
         .setTitle('📝 New Ticket');
 
     if (questions.length > 0) {
-        // Build modal with custom questions
-        for (let i = 0; i < questions.length; i++) {
+        questions.slice(0, 5).forEach((q, i) => {
             const questionInput = new TextInputBuilder()
                 .setCustomId(`custom_question_${i}`)
-                .setLabel(questions[i])
-                .setStyle(TextInputStyle.Paragraph) // Use paragraph for more detailed answers
+                .setLabel(q)
+                .setStyle(TextInputStyle.Paragraph)
                 .setRequired(true);
             modal.addComponents(new ActionRowBuilder().addComponents(questionInput));
-        }
+        });
     } else {
-        // Default questions
         const serviceInput = new TextInputBuilder()
             .setCustomId('ticket_service')
             .setLabel('Service (e.g., Bot, Website, GFX)')
@@ -247,73 +154,57 @@ export async function handleCreateTicket(interaction, client) {
     await interaction.showModal(modal);
 }
 
-// Export modal handler for use in index.js
 export async function handleTicketModal(interaction, client) {
-<<<<<<< HEAD
-    // Check if server is configured
-    const configured = await isServerConfigured(interaction.guild.id);
-    if (!configured) {
-        return await interaction.reply({
+    const { customId, fields, guild, user } = interaction;
+    let embedFields = [];
+
+    await interaction.deferReply({ ephemeral: true });
+
+    if (!await isServerConfigured(guild.id)) {
+        return await interaction.editReply({
             content: '❌ **This server has not been configured yet. Please use `/setup` to configure the bot first.**',
             ephemeral: true
         });
     }
-
-    // Get answers
-    const service = interaction.fields.getTextInputValue('ticket_service');
-    const description = interaction.fields.getTextInputValue('ticket_description');
-    const deadline = interaction.fields.getTextInputValue('ticket_deadline') || 'Not specified';
-    const links = interaction.fields.getTextInputValue('ticket_links') || 'None';
-    const orderId = generateOrderId();
-=======
-    const { customId } = interaction;
-    let fields = [];
->>>>>>> 1d6bba1 (Fix permission check and emoji validation errors in createticketpanel command)
 
     if (customId.startsWith('ticket_modal_custom:')) {
         try {
             const jsonData = customId.substring('ticket_modal_custom:'.length);
             const data = JSON.parse(jsonData);
             if (data.q && Array.isArray(data.q)) {
-                for (let i = 0; i < data.q.length; i++) {
-                    const answer = interaction.fields.getTextInputValue(`custom_question_${i}`);
-                    fields.push({ name: data.q[i], value: answer });
-                }
+                data.q.slice(0, 5).forEach((question, i) => {
+                    const answer = fields.getTextInputValue(`custom_question_${i}`);
+                    embedFields.push({ name: question, value: answer });
+                });
             }
         } catch (error) {
             console.error('Error parsing custom ticket modal data:', error);
-            // Fallback to default fields on error
-            fields.push({ name: 'Error', value: 'Could not parse custom questions. Please check the panel configuration.' });
+            embedFields.push({ name: 'Error', value: 'Could not parse custom questions.' });
         }
     } else {
-        // Default modal submission
-        const service = interaction.fields.getTextInputValue('ticket_service');
-        const description = interaction.fields.getTextInputValue('ticket_description');
-        fields.push({ name: 'Service', value: service });
-        fields.push({ name: 'Description', value: description });
+        const service = fields.getTextInputValue('ticket_service');
+        const description = fields.getTextInputValue('ticket_description');
+        embedFields.push({ name: 'Service', value: service });
+        embedFields.push({ name: 'Description', value: description });
     }
 
     const orderId = generateOrderId();
     
-    // Create ticket channel (existing logic, simplified for brevity)
-    const guild = interaction.guild;
-    const channelName = `ticket-${interaction.user.username}`;
+    const channelName = `ticket-${user.username.substring(0, 25)}`;
     let ticketChannel;
     
     try {
-        // Get support role from server config
         const supportRole = await getSupportRole(guild);
         
         const permissionOverwrites = [
-            { id: guild.roles.everyone, deny: ['ViewChannel'] },
-            { id: interaction.user.id, allow: ['ViewChannel', 'SendMessages', 'AttachFiles'] }
+            { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
+            { id: user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory] }
         ];
 
-        // Add support role permissions if it exists
         if (supportRole) {
             permissionOverwrites.push({
                 id: supportRole.id,
-                allow: ['ViewChannel', 'SendMessages', 'AttachFiles', 'ManageMessages']
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages]
             });
         }
 
@@ -321,130 +212,91 @@ export async function handleTicketModal(interaction, client) {
             name: channelName,
             type: ChannelType.GuildText,
             permissionOverwrites: permissionOverwrites,
-            topic: `Order ID: ${orderId} | Ticket for ${interaction.user.tag}`
+            topic: `Order ID: ${orderId} | Ticket for ${user.tag} | User ID: ${user.id}`
         });
     } catch (err) {
-        return interaction.reply({ content: '❌ Failed to create ticket channel. Please contact an admin.', ephemeral: true });
+        console.error('Failed to create ticket channel:', err);
+        return interaction.editReply({ content: '❌ Failed to create ticket channel. Please contact an admin.', ephemeral: true });
     }
 
-    // Tag user and support role, post embed with answers and order ID
     const supportRole = await getSupportRole(guild);
-    const supportTag = supportRole ? `<@&${supportRole.id}>` : '@Support Team';
-    const userTag = `<@${interaction.user.id}>`;
+    const supportTag = supportRole ? `<@&${supportRole.id}>` : '';
+    const userTag = `<@${user.id}>`;
     const embed = new EmbedBuilder()
         .setTitle('🎫 New Ticket Created')
-        .setDescription(`Your ticket has been created. A staff member will be with you shortly.`)
-        .setColor(TICKET_CONFIG.COLORS.SUCCESS)
-        .addFields(fields) // Add dynamic fields
-        .setFooter({ text: `Order ID: ${orderId} | User ID: ${interaction.user.id}` })
+        .setDescription(`A staff member will be with you shortly.`)
+        .setColor('#57F287')
+        .addFields(embedFields) 
+        .setFooter({ text: `Order ID: ${orderId}` })
         .setTimestamp();
+        
     const closeButton = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-            .setCustomId('close_ticket')
+            .setCustomId('close_ticket_button')
             .setLabel('Close Ticket')
             .setStyle(ButtonStyle.Danger)
             .setEmoji('🔒')
     );
+    
     await ticketChannel.send({ content: `${userTag} ${supportTag}`, embeds: [embed], components: [closeButton] });
 
-    // Log to Firestore
-    await db.collection('orders').add({
-        orderId,
-        userId: interaction.user.id,
-        username: interaction.user.tag,
-        service,
-        description,
-        deadline: 'Not specified',
-        links: 'None',
-        status: 'Pending',
-        timestamp: new Date()
-    });
+    if (db) {
+        const service = embedFields.find(f => f.name === 'Service')?.value || 'Custom Ticket';
+        const description = embedFields.find(f => f.name === 'Description')?.value || 'See details in ticket channel.';
 
-    // DM user with order details
+        await db.collection('orders').add({
+            orderId,
+            guildId: guild.id,
+            userId: user.id,
+            username: user.tag,
+            channelId: ticketChannel.id,
+            service,
+            description,
+            fields: embedFields,
+            status: 'Pending',
+            timestamp: new Date()
+        });
+    }
+
     try {
-        await interaction.user.send({
+        await user.send({
             embeds: [
                 new EmbedBuilder()
-                    .setTitle('📝 Order Confirmation')
-                    .setDescription(`Thank you for your order!
-
-**Service:** ${service}
-**Order ID:** \`${orderId}\`
-
-You can track your order at any time with \`/trackorder order_id:${orderId}\``)
-                    .setColor(0x43B581)
-                    .setFooter({ text: 'Lunary Services' })
+                    .setTitle('📝 Ticket Created')
+                    .setDescription(`Thank you for creating a ticket!\n\n**Order ID:** \`${orderId}\`\n\nYou can view your ticket in ${ticketChannel.toString()}`)
+                    .setColor('#43B581')
+                    .setFooter({ text: guild.name })
                     .setTimestamp()
             ]
         });
     } catch (err) {
-        // Ignore DM errors
     }
 
-    // Log to log channel if configured
-    const config = await loadTicketConfig(interaction.guild.id, client);
+    const config = await loadTicketConfig(guild.id, client);
     if (config.ticketLogChannelId) {
         try {
-            const logChannel = await interaction.guild.channels.fetch(config.ticketLogChannelId);
+            const logChannel = await guild.channels.fetch(config.ticketLogChannelId);
             if (logChannel) {
-                await logChannel.send({ embeds: [embed] });
+                const logEmbed = new EmbedBuilder()
+                    .setTitle('Ticket Created')
+                    .setAuthor({ name: user.tag, iconURL: user.displayAvatarURL() })
+                    .setColor('#57F287')
+                    .addFields(
+                        { name: 'User', value: user.toString(), inline: true },
+                        { name: 'Channel', value: ticketChannel.toString(), inline: true },
+                        ...embedFields
+                    )
+                    .setFooter({ text: `User ID: ${user.id} | Order ID: ${orderId}` })
+                    .setTimestamp();
+                await logChannel.send({ embeds: [logEmbed] });
             }
         } catch (err) {
-            // Fail silently if log channel is missing
         }
     }
 
-    await interaction.reply({ content: `✅ Your ticket has been created! ${ticketChannel.toString()}`, ephemeral: true });
+    await interaction.editReply({ content: `✅ Your ticket has been created! ${ticketChannel.toString()}`, ephemeral: true });
 }
 
 export async function handleCloseTicketButton(interaction, client) {
-    const channel = interaction.channel;
-    const user = interaction.user;
-
-    // Check if this is actually a ticket channel
-    if (!isValidTicketChannel(channel.name)) {
-        return await interaction.reply({
-            content: '❌ **This command can only be used in ticket channels.**',
-            ephemeral: true
-        });
-    }
-
-    // Check if server is configured
-    const configured = await isServerConfigured(interaction.guild.id);
-    if (!configured) {
-        return await interaction.reply({
-            content: '❌ **This server has not been configured yet. Please use `/setup` to configure the bot first.**',
-            ephemeral: true
-        });
-    }
-
-    // Check if user has permission to close tickets
-    const hasPermission = await hasSupportPermission(interaction.member);
-    if (!hasPermission) {
-        return await interaction.reply({
-            content: '❌ **You do not have permission to close tickets.**',
-            ephemeral: true
-        });
-    }
-
-    // Create confirmation embed
-    const confirmEmbed = new EmbedBuilder()
-        .setTitle(TICKET_CONFIG.MESSAGES.CLOSING_TITLE)
-        .setDescription(TICKET_CONFIG.MESSAGES.CLOSING_DESCRIPTION.replace('{user}', user.tag))
-        .setColor(TICKET_CONFIG.COLORS.PRIMARY)
-        .setFooter({ text: 'Velari Support System', iconURL: interaction.guild.iconURL() })
-        .setTimestamp();
-
-    await interaction.reply({
-        embeds: [confirmEmbed]
-    });
-
-    // Delete the channel after the configured delay
-    setTimeout(async () => {
-        try {
-            await channel.delete();
-        } catch (error) {
-            console.error('Error deleting ticket channel:', error);
-        }
-    }, TICKET_CONFIG.CLOSE_DELAY);
-} 
+    await handleCloseTicket(interaction, client);
+}
