@@ -2,19 +2,6 @@ import admin from 'firebase-admin';
 import fs from 'fs';
 import path from 'path';
 
-// Always use local file for local development
-let serviceAccount;
-try {
-  const serviceAccountPath = path.join(process.cwd(), 'velari-59c5e-firebase-adminsdk-fbsvc-1d3000b75a.json');
-  const serviceAccountFile = fs.readFileSync(serviceAccountPath, 'utf8');
-  serviceAccount = JSON.parse(serviceAccountFile);
-  console.log('✅ Firebase service account loaded from local file');
-} catch (error) {
-  console.error('❌ Error loading Firebase service account:', error);
-  console.log('📋 Make sure the Firebase service account key file is in your project root directory.');
-  process.exit(1);
-}
-
 if (!admin.apps.length) {
   let serviceAccount;
   
