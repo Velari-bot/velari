@@ -4,6 +4,7 @@ import { db } from '../firebase/firebase.js';
 export const data = new SlashCommandBuilder()
   .setName('setup')
   .setDescription('Setup bot roles, permissions, and channels for this server')
+  // Required role options
   .addRoleOption(option =>
     option.setName('admin_role')
       .setDescription('Role that will have admin permissions (can manage orders, keys, etc.)')
@@ -12,10 +13,7 @@ export const data = new SlashCommandBuilder()
     option.setName('staff_role')
       .setDescription('Role that will have staff permissions (can view orders, help with support)')
       .setRequired(true))
-  .addRoleOption(option =>
-    option.setName('support_role')
-      .setDescription('Role for support team members (can manage tickets)')
-      .setRequired(false))
+  // Required channel options
   .addChannelOption(option =>
     option.setName('welcome_channel')
       .setDescription('Channel for welcome messages')
@@ -72,6 +70,11 @@ export const data = new SlashCommandBuilder()
     option.setName('logs_channel')
       .setDescription('Channel for logs')
       .setRequired(true))
+  // Optional role options
+  .addRoleOption(option =>
+    option.setName('support_role')
+      .setDescription('Role for support team members (can manage tickets)')
+      .setRequired(false))
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
 
 export async function execute(interaction, client) {
