@@ -8,7 +8,6 @@ export const data = new SlashCommandBuilder()
         subcommand
             .setName('send')
             .setDescription('Send an announcement DM to users with a specific role.')
-            .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
             .addRoleOption(option => 
                 option.setName('role')
                     .setDescription('The role to receive the announcement.')
@@ -33,6 +32,13 @@ export async function execute(interaction) {
 }
 
 async function handleSend(interaction) {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({
+            content: 'You must be an administrator to use this command.',
+            ephemeral: true,
+        });
+    }
+
     const role = interaction.options.getRole('role');
     const message = interaction.options.getString('message');
 
