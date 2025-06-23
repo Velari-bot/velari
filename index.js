@@ -5,6 +5,7 @@ import path from 'path';
 import { permabannedIds } from './utils/permaban.js';
 import { handleEmbedBuilderModal, handleEmbedButton } from './commands/embedbuilder.js';
 import { antiSpam } from './utils/antiSpam.js';
+import { db } from './firebase/firebase.js';
 
 const client = new Client({
   intents: [
@@ -73,15 +74,19 @@ client.once('ready', async () => {
     console.error('❌ Error initializing Firebase/Key system:', error);
   }
   
-  const general = client.channels.cache.get(GENERAL_CHAT_ID);
-  if (general) {
-    const me = await general.guild.members.fetchMe();
-    const perms = general.permissionsFor(me);
-    if (!perms.has(['ManageMessages', 'ModerateMembers'])) {
-      console.warn('⚠️ Bot is missing Manage Messages or Moderate Members permissions in #general!');
+  // Use per-server general channel for permission check
+  for (const guild of client.guilds.cache.values()) {
+    const channels = await getServerChannelIds(guild.id);
+    const general = guild.channels.cache.get(channels.general);
+    if (general) {
+      const me = await general.guild.members.fetchMe();
+      const perms = general.permissionsFor(me);
+      if (!perms.has(['ManageMessages', 'ModerateMembers'])) {
+        console.warn(`⚠️ Bot is missing Manage Messages or Moderate Members permissions in #general for guild ${guild.name}!`);
+      }
+    } else {
+      console.warn(`⚠️ #general channel not found for permissions check in guild ${guild.name}.`);
     }
-  } else {
-    console.warn('⚠️ #general channel not found for permissions check.');
   }
 });
 
@@ -294,7 +299,8 @@ const WELCOME_EMOJIS = [
 
 client.on('guildMemberAdd', async (member) => {
   try {
-    const channel = await member.guild.channels.fetch(WELCOME_CHANNEL_ID);
+    const channels = await getServerChannelIds(member.guild.id);
+    const channel = await member.guild.channels.fetch(channels.welcome);
     if (!channel) return;
 
     // Format join date and account creation date
@@ -307,7 +313,7 @@ client.on('guildMemberAdd', async (member) => {
     // Build embed
     const embed = new EmbedBuilder()
       .setTitle(`🎉 Welcome to Lunary | EST 2024, ${member.user.tag}! 🎉`)
-      .setDescription(`We're excited to have you join our community!\n\n• You are our **${memberCount}th** member\n• Account created on ${createdAt}\n• Join date: ${joinedAt}\n\n**Quick Links:**\n[Server Rules](https://discord.com/channels/${member.guild.id}/${RULES_CHANNEL_ID})\n[General](https://discord.com/channels/${member.guild.id}/)\n[Support](https://discord.com/channels/${member.guild.id}/)`)
+      .setDescription(`We're excited to have you join our community!\n\n• You are our **${memberCount}th** member\n• Account created on ${createdAt}\n• Join date: ${joinedAt}\n\n**Quick Links:**\n[Server Rules](https://discord.com/channels/${member.guild.id}/${channels.rules})\n[General](https://discord.com/channels/${member.guild.id}/${channels.general})\n[Support](https://discord.com/channels/${member.guild.id}/${channels.ticket})`)
       .setImage('attachment://Lunary_Banner.png')
       .setColor('#F44336')
       .setFooter({ text: `Member joined at • ${new Date(member.joinedTimestamp).toLocaleTimeString()} • ${new Date(member.joinedTimestamp).toLocaleDateString()}` });
@@ -431,7 +437,6 @@ client.on('guildDelete', async (guild) => {
     
     // Clean up server configuration from Firebase
     try {
-      const { db } = await import('./firebase/firebase.js');
       await db.collection('server_configs').doc(guild.id).delete();
       console.log(`🗑️ Cleaned up server config for: ${guild.name} (${guild.id})`);
     } catch (error) {
@@ -442,5 +447,27 @@ client.on('guildDelete', async (guild) => {
     console.error('Error handling server leave:', error);
   }
 });
+
+// Helper to get all channel IDs for a guild
+async function getServerChannelIds(guildId) {
+  const configDoc = await db.collection('server_configs').doc(guildId).get();
+  const config = configDoc.exists ? configDoc.data() : {};
+  return {
+    welcome: config.welcomeChannelId || WELCOME_CHANNEL_ID,
+    rules: config.rulesChannelId || RULES_CHANNEL_ID,
+    announcements: config.announcementsChannelId || ANNOUNCEMENTS_CHANNEL_ID,
+    pricing: config.pricingChannelId || PRICING_CHANNEL_ID,
+    faq: config.faqChannelId || FAQ_CHANNEL_ID,
+    status: config.statusChannelId || STATUS_CHANNEL_ID,
+    orderHere: config.orderHereChannelId || ORDER_HERE_CHANNEL_ID,
+    showcase: config.showcaseChannelId || SHOWCASE_CHANNEL_ID,
+    packageAddon: config.packageAddonChannelId || PACKAGE_ADDON_CHANNEL_ID,
+    reviews: config.reviewsChannelId || REVIEWS_CHANNEL_ID,
+    general: config.generalChannelId || GENERAL_CHAT_ID,
+    ticket: config.ticketChannelId || TICKET_CHANNEL_ID,
+    orderTracking: config.orderTrackingChannelId || ORDER_TRACKING_CHANNEL_ID,
+    logs: config.logsChannelId || LOGS_CHANNEL_ID
+  };
+}
 
 client.login(process.env.DISCORD_TOKEN); 
