@@ -231,7 +231,7 @@ client.on('interactionCreate', async interaction => {
       const supportPanelModule = await import('./commands/supportpanel.js');
       const createTicketPanelModule = await import('./commands/createticketpanel.js');
       
-      if (customId === 'ticket_modal') {
+      if (customId === 'ticket_modal' || customId.startsWith('ticket_modal_custom:')) {
         await ticketModule.handleTicketModal(interaction, client);
       } else if (customId === 'ticket_panel_modal') {
         await createTicketPanelModule.handleTicketPanelModal(interaction, client);
@@ -296,53 +296,6 @@ client.on('interactionCreate', async interaction => {
 const WELCOME_EMOJIS = [
   '🎉', '👋', '😎', '🥳', '✨', '🙌', '🔥', '😃', '🫡', '💫', '🤩', '🦾', '🦸', '🫶', '💥', '🌟', '🎊', '🕺', '💯', '🚀'
 ];
-
-client.on('guildMemberAdd', async (member) => {
-  try {
-    const channels = await getServerChannelIds(member.guild.id);
-    const channel = await member.guild.channels.fetch(channels.welcome);
-    if (!channel) return;
-
-    // Format join date and account creation date
-    const createdAt = `<t:${Math.floor(member.user.createdTimestamp / 1000)}:D>`;
-    const joinedAt = `<t:${Math.floor(member.joinedTimestamp / 1000)}:D>`;
-
-    // Get member count
-    const memberCount = member.guild.memberCount;
-
-    // Build embed
-    const embed = new EmbedBuilder()
-      .setTitle(`🎉 Welcome to Lunary | EST 2024, ${member.user.tag}! 🎉`)
-      .setDescription(`We're excited to have you join our community!\n\n• You are our **${memberCount}th** member\n• Account created on ${createdAt}\n• Join date: ${joinedAt}\n\n**Quick Links:**\n[Server Rules](https://discord.com/channels/${member.guild.id}/${channels.rules})\n[General](https://discord.com/channels/${member.guild.id}/${channels.general})\n[Support](https://discord.com/channels/${member.guild.id}/${channels.ticket})`)
-      .setImage('attachment://Lunary_Banner.png')
-      .setColor('#F44336')
-      .setFooter({ text: `Member joined at • ${new Date(member.joinedTimestamp).toLocaleTimeString()} • ${new Date(member.joinedTimestamp).toLocaleDateString()}` });
-
-    // Send embed with banner image attachment
-    const sentMessage = await channel.send({
-      embeds: [embed],
-      files: [{ attachment: './Lunary_Banner.png', name: 'Lunary_Banner.png' }]
-    });
-
-    // Pick 3 random emojis
-    const shuffled = WELCOME_EMOJIS.sort(() => 0.5 - Math.random());
-    const emojis = shuffled.slice(0, 3);
-    for (const emoji of emojis) {
-      await sentMessage.react(emoji);
-    }
-  } catch (err) {
-    console.error('Error sending welcome message:', err);
-  }
-});
-
-client.on('guildMemberRemove', async member => {
-  try {
-    const welcomeModule = await import('./commands/welcome.js');
-    await welcomeModule.sendGoodbyeMessage(member.guild, member, client);
-  } catch (error) {
-    console.error('Error handling member leave:', error);
-  }
-});
 
 // Message deletion tracking for snipe command
 client.on('messageDelete', async message => {
