@@ -25,14 +25,6 @@ export const data = new SlashCommandBuilder()
     )
     .addSubcommand(subcommand =>
         subcommand
-            .setName('announce')
-            .setDescription('Make an announcement')
-            .addChannelOption(option =>
-                option.setName('channel').setDescription('Channel to announce in').setRequired(true).addChannelTypes(ChannelType.GuildText)
-            )
-    )
-    .addSubcommand(subcommand =>
-        subcommand
             .setName('remindme')
             .setDescription('Set a reminder')
             .addStringOption(option =>
@@ -55,9 +47,6 @@ export async function execute(interaction, client) {
             break;
         case 'botinfo':
             await handleBotInfo(interaction, client);
-            break;
-        case 'announce':
-            await handleAnnounce(interaction, client);
             break;
         case 'remindme':
             await handleRemindMe(interaction, client);
@@ -146,58 +135,6 @@ async function handleBotInfo(interaction, client) {
         .setTimestamp();
 
     await interaction.reply({ embeds: [embed] });
-}
-
-async function handleAnnounce(interaction, client) {
-    if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
-        return await interaction.reply({
-            content: '❌ **You need "Manage Messages" permission to make announcements.**',
-            ephemeral: true
-        });
-    }
-
-    const channel = interaction.options.getChannel('channel');
-
-    // Create modal for announcement
-    const modal = new ModalBuilder()
-        .setCustomId('announcement_modal')
-        .setTitle('📢 Create Announcement');
-
-    const titleInput = new TextInputBuilder()
-        .setCustomId('announcement_title')
-        .setLabel('Announcement Title')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('Enter the announcement title...')
-        .setRequired(true)
-        .setMaxLength(256);
-
-    const messageInput = new TextInputBuilder()
-        .setCustomId('announcement_message')
-        .setLabel('Announcement Message')
-        .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('Enter the announcement message...')
-        .setRequired(true)
-        .setMaxLength(2000);
-
-    const pingInput = new TextInputBuilder()
-        .setCustomId('announcement_ping')
-        .setLabel('Ping Role (optional)')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('@everyone, @here, or role name')
-        .setRequired(false)
-        .setMaxLength(100);
-
-    const firstActionRow = new ActionRowBuilder().addComponents(titleInput);
-    const secondActionRow = new ActionRowBuilder().addComponents(messageInput);
-    const thirdActionRow = new ActionRowBuilder().addComponents(pingInput);
-
-    modal.addComponents(firstActionRow, secondActionRow, thirdActionRow);
-
-    // Store channel ID for modal submission
-    if (!client.announcementData) client.announcementData = new Map();
-    client.announcementData.set(interaction.user.id, { channelId: channel.id });
-
-    await interaction.showModal(modal);
 }
 
 async function handleRemindMe(interaction, client) {
