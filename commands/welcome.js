@@ -166,62 +166,92 @@ async function handleToggle(interaction, client) {
 }
 
 async function handleMsgSetup(interaction, client) {
-    if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
-        return await interaction.reply({
-            content: '❌ **You need "Manage Server" permission to configure the welcome message.**',
-            ephemeral: true
-        });
+    try {
+        await interaction.deferReply({ ephemeral: true });
+        if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
+            return await interaction.editReply({
+                content: '❌ **You need "Manage Server" permission to configure the welcome message.**',
+                ephemeral: true
+            });
+        }
+        const guildId = interaction.guildId;
+        const config = await loadWelcomeConfig(guildId, client);
+        const serverName = interaction.options.getString('server_name');
+        const message = interaction.options.getString('message');
+        const logoUrl = interaction.options.getString('logo_url');
+        if (serverName) config.customServerName = serverName;
+        if (message) config.customWelcomeMessage = message;
+        if (logoUrl) config.customLogoUrl = logoUrl;
+        await db.collection('welcomeConfig').doc(guildId).set(config);
+        client.welcomeConfig[guildId] = config;
+        const embed = new EmbedBuilder()
+            .setTitle('✅ **Custom Welcome Message Set**')
+            .setDescription('Your custom welcome message settings have been saved!')
+            .setColor(TICKET_CONFIG.COLORS.SUCCESS)
+            .setFooter({ text: 'Velari Welcome System', iconURL: interaction.guild.iconURL() })
+            .setTimestamp();
+        await interaction.editReply({ embeds: [embed] });
+    } catch (error) {
+        if (error.code === 10062) {
+            // Unknown interaction, do not try to reply
+            console.error('Interaction expired or unknown (msgsetup):', error.message);
+        } else {
+            console.error('Error in handleMsgSetup:', error);
+        }
     }
-    const guildId = interaction.guildId;
-    const config = await loadWelcomeConfig(guildId, client);
-    const serverName = interaction.options.getString('server_name');
-    const message = interaction.options.getString('message');
-    const logoUrl = interaction.options.getString('logo_url');
-    if (serverName) config.customServerName = serverName;
-    if (message) config.customWelcomeMessage = message;
-    if (logoUrl) config.customLogoUrl = logoUrl;
-    await db.collection('welcomeConfig').doc(guildId).set(config);
-    client.welcomeConfig[guildId] = config;
-    const embed = new EmbedBuilder()
-        .setTitle('✅ **Custom Welcome Message Set**')
-        .setDescription('Your custom welcome message settings have been saved!')
-        .setColor(TICKET_CONFIG.COLORS.SUCCESS)
-        .setFooter({ text: 'Velari Welcome System', iconURL: interaction.guild.iconURL() })
-        .setTimestamp();
-    await interaction.reply({ embeds: [embed], ephemeral: true });
 }
 
 async function handleTest(interaction, client) {
-    if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
-        return await interaction.reply({
-            content: '❌ **You need "Manage Server" permission to test the welcome system.**',
+    try {
+        await interaction.deferReply({ ephemeral: true });
+        if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
+            return await interaction.editReply({
+                content: '❌ **You need "Manage Server" permission to test the welcome system.**',
+                ephemeral: true
+            });
+        }
+        // Build the preview using the custom welcome message config
+        const guild = interaction.guild;
+        const member = interaction.member;
+        const config = await loadWelcomeConfig(guild.id, client);
+        if (!config || !config.customWelcomeMessage) {
+            return await interaction.editReply({
+                content: '❌ **No custom welcome message is set. Use `/welcome msgsetup` first.**',
+                ephemeral: true
+            });
+        }
+        const memberCount = guild.memberCount;
+        const accountCreated = `<t:${Math.floor(member.user.createdTimestamp / 1000)}:D>`;
+        const joinDate = `<t:${Math.floor(member.joinedTimestamp / 1000)}:D>`;
+        const quickLinks = `**Quick Links:**\n[Server Rules](https://discord.com/channels/${guild.id}/${CHANNEL_IDS.rules})\n[General](https://discord.com/channels/${guild.id}/${CHANNEL_IDS.generalChat})\n[Support](https://discord.com/channels/${guild.id}/${CHANNEL_IDS.ticket})`;
+        const serverName = config.customServerName || guild.name;
+        let welcomeMsg = config.customWelcomeMessage;
+        welcomeMsg = welcomeMsg.replace('{user}', member.user.tag)
+          .replace('{memberCount}', memberCount)
+          .replace('{accountCreated}', accountCreated)
+          .replace('{joinDate}', joinDate)
+          .replace('{quickLinks}', quickLinks);
+        const logoUrl = config.customLogoUrl || 'attachment://Lunary_Banner.png';
+        const embed = new EmbedBuilder()
+          .setTitle(`🎉 Welcome to ${serverName}, ${member.user.tag}! 🎉`)
+          .setDescription(welcomeMsg)
+          .setImage(logoUrl)
+          .setColor('#F44336')
+          .setFooter({ text: `Member joined at • ${new Date(member.joinedTimestamp).toLocaleTimeString()} • ${new Date(member.joinedTimestamp).toLocaleDateString()}` });
+        await interaction.editReply({
+            content: '👀 **Welcome Message Preview:** (Only you can see this)',
+            embeds: [embed],
+            files: logoUrl === 'attachment://Lunary_Banner.png' ? [{ attachment: './Lunary_Banner.png', name: 'Lunary_Banner.png' }] : [],
             ephemeral: true
         });
+    } catch (error) {
+        if (error.code === 10062) {
+            // Unknown interaction, do not try to reply
+            console.error('Interaction expired or unknown (test):', error.message);
+        } else {
+            console.error('Error in handleTest:', error);
+        }
     }
-    // Send the real welcome message
-    await sendWelcomeMessage(interaction.guild, interaction.member, client, true);
-
-    // Build the same embed for preview
-    const member = interaction.member;
-    const guild = interaction.guild;
-    const memberCount = guild.memberCount;
-    const accountCreated = `<t:${Math.floor(member.user.createdTimestamp / 1000)}:D>`;
-    const joinDate = `<t:${Math.floor(member.joinedTimestamp / 1000)}:D>`;
-    const quickLinks = `**Quick Links:**\n[Server Rules](https://discord.com/channels/${guild.id}/${RULES_CHANNEL_ID})\n[General](https://discord.com/channels/${guild.id}/)\n[Support](https://discord.com/channels/${guild.id}/)`;
-    const embed = new EmbedBuilder()
-      .setTitle(`🎉 Welcome to Team Solarr | EST 2025, ${member.user.tag}! 🎉`)
-      .setDescription(`We're excited to have you join our community!\n\n• You are our **${memberCount}th** member\n• Account created on ${accountCreated}\n• Join date: ${joinDate}\n\n${quickLinks}`)
-      .setImage('attachment://Lunary_Banner.png')
-      .setColor('#F44336')
-      .setFooter({ text: `Member joined at • ${new Date(member.joinedTimestamp).toLocaleTimeString()} • ${new Date(member.joinedTimestamp).toLocaleDateString()}` });
-
-    // Send the preview as an ephemeral reply with the banner image
-    await interaction.reply({
-        content: '👀 **Welcome Message Preview:**',
-        embeds: [embed],
-        files: [{ attachment: './Lunary_Banner.png', name: 'Lunary_Banner.png' }],
-        ephemeral: true
-    });
 }
 
 const WELCOME_CHANNEL_ID = '1382038664246464523';
@@ -232,24 +262,30 @@ const WELCOME_EMOJIS = [
 
 export async function sendWelcomeMessage(guild, member, client, isTest = false) {
     const config = await loadWelcomeConfig(guild.id, client);
-    if (!config) return;
+    if (!config || !config.customWelcomeMessage) return; // Only send if custom message is set
     const memberCount = guild.memberCount;
     const accountCreated = `<t:${Math.floor(member.user.createdTimestamp / 1000)}:D>`;
     const joinDate = `<t:${Math.floor(member.joinedTimestamp / 1000)}:D>`;
     const quickLinks = `**Quick Links:**\n[Server Rules](https://discord.com/channels/${guild.id}/${RULES_CHANNEL_ID})\n[General](https://discord.com/channels/${guild.id}/)\n[Support](https://discord.com/channels/${guild.id}/)`;
     const serverName = config.customServerName || guild.name;
-    const welcomeMsg = config.customWelcomeMessage || `We're excited to have you join our community!\n\n• You are our **${memberCount}th** member\n• Account created on ${accountCreated}\n• Join date: ${joinDate}\n\n${quickLinks}`;
+    let welcomeMsg = config.customWelcomeMessage;
+    // Replace placeholders
+    welcomeMsg = welcomeMsg.replace('{user}', member.user.tag)
+      .replace('{memberCount}', memberCount)
+      .replace('{accountCreated}', accountCreated)
+      .replace('{joinDate}', joinDate)
+      .replace('{quickLinks}', quickLinks);
     const logoUrl = config.customLogoUrl || 'attachment://Lunary_Banner.png';
     const embed = new EmbedBuilder()
       .setTitle(`🎉 Welcome to ${serverName}, ${member.user.tag}! 🎉`)
-      .setDescription(welcomeMsg.replace('{user}', member.user.tag))
+      .setDescription(welcomeMsg)
       .setImage(logoUrl)
       .setColor('#F44336')
       .setFooter({ text: `Member joined at • ${new Date(member.joinedTimestamp).toLocaleTimeString()} • ${new Date(member.joinedTimestamp).toLocaleDateString()}` });
 
     // Send to welcome channel with banner image attachment
     try {
-        const channel = await guild.channels.fetch(CHANNEL_IDS.welcome || WELCOME_CHANNEL_ID);
+        const channel = await guild.channels.fetch(config.channelId || CHANNEL_IDS.welcome);
         if (channel) {
             const sentMessage = await channel.send({
                 embeds: [embed],
