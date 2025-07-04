@@ -26,5 +26,37 @@ export const ANTI_SPAM_CONFIG = {
     ],
 
     // Log channel for spam alerts
-    LOG_CHANNEL_ID: '1369444382390091927' // Replace with your actual log channel ID
+    LOG_CHANNEL_ID: '1369444382390091927', // Replace with your actual log channel ID
+
+    // Word Filtering System
+    WORD_FILTER: {
+        ENABLED: true,
+        BANNED_WORDS: [
+            'solace', 'melt', 'solacing', 'melting', 'solaced', 'melted',
+            'solacer', 'melter', 'solaceful', 'meltable', 'solaceless', 'meltless'
+        ],
+        SIMILARITY_THRESHOLD: 0.8, // 0.8 = 80% similarity to trigger
+        PUNISHMENT: 'timeout', // 'timeout', 'kick', 'ban', 'delete'
+        TIMEOUT_DURATION: 10 * 60 * 1000, // 10 minutes for word violations
+        DELETE_MESSAGE: true,
+        LOG_VIOLATIONS: true
+    },
+
+    // IP Banning System
+    IP_BAN: {
+        ENABLED: true,
+        BANNED_IPS: [
+            // Add banned IP addresses here
+            // '192.168.1.1',
+            // '10.0.0.1'
+        ],
+        BANNED_USER_IDS: [
+            // Add banned user IDs here
+            // '123456789012345678',
+            // '987654321098765432'
+        ],
+        PUNISHMENT: 'ban', // 'timeout', 'kick', 'ban'
+        TIMEOUT_DURATION: 24 * 60 * 60 * 1000, // 24 hours for IP violations
+        LOG_VIOLATIONS: true
+    }
 }; 

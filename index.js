@@ -309,6 +309,18 @@ client.on('messageDelete', async message => {
   }
 });
 
+// Anti-spam, word filtering, and IP banning system
+client.on('messageCreate', async message => {
+  try {
+    if (message.author?.bot) return;
+    
+    // Handle anti-spam, word filtering, and IP banning
+    await antiSpam.handleMessage(message);
+  } catch (error) {
+    console.error('Error handling message:', error);
+  }
+});
+
 // --- Permaban System ---
 client.on('guildMemberAdd', async member => {
   if (permabannedIds.has(member.id)) {

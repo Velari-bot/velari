@@ -1,5 +1,7 @@
 import { Collection, EmbedBuilder } from 'discord.js';
 import { ANTI_SPAM_CONFIG as config } from '../anti-spam.config.js';
+import { wordFilter } from './wordFilter.js';
+import { ipBan } from './ipBan.js';
 
 const userCache = new Collection();
 
@@ -11,6 +13,20 @@ async function handleMessage(message) {
         config.IGNORED_CHANNELS.includes(message.channel.id) || 
         config.IGNORED_ROLES.some(roleId => message.member.roles.cache.has(roleId))) {
         return;
+    }
+
+    // Check for IP/user bans first
+    const banCheck = ipBan.isUserBanned(message.author.id);
+    if (banCheck.isBanned) {
+        await ipBan.applyBanPunishment(message.member, banCheck.reason);
+        return;
+    }
+
+    // Check for word filter violations
+    const wordCheck = wordFilter.checkMessageContent(message.content);
+    if (wordCheck.hasViolation) {
+        await wordFilter.applyWordViolationPunishment(message, wordCheck.violations);
+        return; // Don't process spam check if word filter already handled it
     }
 
     const now = Date.now();
